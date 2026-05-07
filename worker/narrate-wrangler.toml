@@ -1,0 +1,14 @@
+name = "audiogide-narrate"
+main = "narrate-worker.js"
+compatibility_date = "2024-01-01"
+
+# Secrets (never put real values here — set via dashboard or CLI):
+#   wrangler secret put OPENAI_API_KEY
+#   wrangler secret put ALLOWED_ORIGIN
+#
+# To deploy:
+#   cd worker
+#   npx wrangler deploy --config narrate-wrangler.toml
+#
+# To test locally:
+#   npx wrangler dev narrate-worker.js

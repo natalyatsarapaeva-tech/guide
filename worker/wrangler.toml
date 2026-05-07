@@ -1,0 +1,18 @@
+name = "task-intake-worker"
+main = "task-intake-worker.js"
+compatibility_date = "2024-01-01"
+
+# Worker runs on Cloudflare's edge network worldwide
+# Free tier: 100,000 requests/day, no cold starts
+
+[vars]
+# Non-sensitive vars go here (none needed for this worker)
+# Sensitive vars go in Cloudflare dashboard → Worker → Settings → Variables
+
+# To deploy:
+#   npm install -g wrangler
+#   wrangler login
+#   wrangler deploy
+#
+# To test locally:
+#   wrangler dev
