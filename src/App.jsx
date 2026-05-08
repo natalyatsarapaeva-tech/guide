@@ -38,7 +38,7 @@ async function getGuideNarration(placeDescription, displayName, apiKey) {
         {
           role: "system",
           content:
-            "Ты — харизматичный русскоязычный экскурсовод. Рассказывай о местах живо, интересно и кратко — как будто идёшь рядом с туристом. Используй 3–5 предложений. Упоминай интересные факты, историю, атмосферу. Никаких заголовков и списков — только живой разговорный текст.",
+            "Ты — русскоязычный экскурсовод, увлечённый историей и культурой этого места. Рассказывай о месте информативно и увлекательно — факты, история, контекст, местные легенды, встречающиеся в нескольких источниках. 5–7 предложений, спокойный интеллигентный стиль. Никаких заголовков и списков.",
         },
         {
           role: "user",
@@ -66,7 +66,8 @@ export default function AudioGuide() {
   const [error, setError] = useState("");
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(false);
-  const watchIdRef = useRef(null);
+  const [updateIntervalMin, setUpdateIntervalMin] = useState(5);
+  const intervalRef = useRef(null);
   const lastCoordsRef = useRef(null);
 
   const distanceMoved = (a, b) => {
@@ -135,18 +136,30 @@ export default function AudioGuide() {
     );
   };
 
+  const startInterval = (mins) => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => runGuide(pos.coords.latitude, pos.coords.longitude, true),
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    }, mins * 60 * 1000);
+  };
+
   const toggleAutoUpdate = () => {
     if (autoUpdate) {
-      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
       setAutoUpdate(false);
     } else {
       setAutoUpdate(true);
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) => runGuide(pos.coords.latitude, pos.coords.longitude),
-        () => {},
-        { enableHighAccuracy: true }
-      );
+      startInterval(updateIntervalMin);
     }
+  };
+
+  const changeInterval = (mins) => {
+    setUpdateIntervalMin(mins);
+    if (autoUpdate) startInterval(mins);
   };
 
   const handleSaveKey = () => {
@@ -181,7 +194,7 @@ export default function AudioGuide() {
   useEffect(
     () => () => {
       window.speechSynthesis?.cancel();
-      if (watchIdRef.current) navigator.geolocation.clearWatch(watchIdRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     },
     []
   );
@@ -294,8 +307,20 @@ export default function AudioGuide() {
             style={{ ...s.btn, ...s.btnAuto, ...(autoUpdate ? s.btnAutoActive : {}) }}
             onClick={toggleAutoUpdate}
           >
-            {autoUpdate ? "🔴 Авто: вкл" : "🟢 Авто: выкл"}
+            {autoUpdate ? `🔴 Авто: каждые ${updateIntervalMin} мин` : "🟢 Авто: выкл"}
           </button>
+          <div style={s.intervalRow}>
+            <span style={s.intervalLabel}>Интервал:</span>
+            {[1, 3, 5, 10].map((m) => (
+              <button
+                key={m}
+                style={{ ...s.intervalBtn, ...(updateIntervalMin === m ? s.intervalBtnActive : {}) }}
+                onClick={() => changeInterval(m)}
+              >
+                {m} мин
+              </button>
+            ))}
+          </div>
           <button style={{ ...s.btn, ...s.btnGhost }} onClick={handleChangeKey}>
             🔑 Сменить API ключ
           </button>
@@ -303,8 +328,8 @@ export default function AudioGuide() {
 
         <p style={s.hint}>
           {autoUpdate
-            ? "Рассказ обновится автоматически при перемещении на 100м+"
-            : "Нажмите «Авто» чтобы гид обновлялся при движении"}
+            ? `Рассказ обновляется автоматически каждые ${updateIntervalMin} мин`
+            : "Нажмите «Авто» чтобы гид обновлялся по таймеру"}
         </p>
       </div>
       <Css />
@@ -367,4 +392,8 @@ const s = {
   btnAutoActive: { background: "rgba(255,80,80,0.1)", border: "1px solid rgba(255,80,80,0.3)", color: "#ff8080" },
   btnGhost: { background: "transparent", border: "1px solid rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.3)", fontSize: 13, padding: "10px 20px" },
   hint: { color: "rgba(255,255,255,0.25)", fontSize: 12, textAlign: "center", margin: 0, lineHeight: 1.5 },
+  intervalRow: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" },
+  intervalLabel: { color: "rgba(255,255,255,0.35)", fontSize: 12, marginRight: 2 },
+  intervalBtn: { border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "5px 10px", fontSize: 12, fontWeight: 600, cursor: "pointer", background: "rgba(255,255,255,0.04)", color: "rgba(255,255,255,0.4)", fontFamily: "'Nunito',sans-serif", transition: "all 0.15s ease" },
+  intervalBtnActive: { background: "rgba(255,160,60,0.15)", border: "1px solid rgba(255,160,60,0.4)", color: "#ffa03c" },
 };
