@@ -52,8 +52,8 @@ export default function AudioGuide() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [updateIntervalMin, setUpdateIntervalMin] = useState(5);
-  const [photo, setPhoto] = useState(null); // { dataUrl, base64 }
-  const [chatMessages, setChatMessages] = useState([]); // [{role, content}]
+  const [photo, setPhoto] = useState(null);
+  const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
 
@@ -61,7 +61,12 @@ export default function AudioGuide() {
   const lastCoordsRef = useRef(null);
   const photoInputRef = useRef(null);
   const chatEndRef = useRef(null);
-  const contextRef = useRef(null); // { placeDesc, displayName, photoBase64 }
+  const contextRef = useRef(null);
+  const narrationRef = useRef("");
+  const chatMessagesRef = useRef([]);
+
+  useEffect(() => { narrationRef.current = narration; }, [narration]);
+  useEffect(() => { chatMessagesRef.current = chatMessages; }, [chatMessages]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -99,30 +104,64 @@ export default function AudioGuide() {
       setStatus("narrating");
       const key = localStorage.getItem(STORAGE_KEY);
 
-      const userContent = photoBase64
-        ? [
-            {
-              type: "text",
-              text: `Я нахожусь здесь: ${placeDesc}. Полное название: ${displayName}. Вот фотография объекта передо мной — используй её вместе с координатами, чтобы точно определить что изображено, и расскажи об этом.`,
-            },
-            {
-              type: "image_url",
-              image_url: { url: `data:image/jpeg;base64,${photoBase64}`, detail: "high" },
-            },
-          ]
-        : `Я нахожусь здесь: ${placeDesc}. Полное название: ${displayName}. Расскажи мне об этом месте.`;
+      const isSamePlace = contextRef.current?.displayName === displayName;
+      const existingNarration = narrationRef.current;
+      const existingChat = chatMessagesRef.current;
 
-      const text = await callOpenAI(
-        [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userContent }],
-        key,
-        photoBase64 ? 500 : 400
-      );
+      if (photoBase64 && isSamePlace && existingNarration) {
+        const ctx = contextRef.current;
+        const messages = [
+          { role: "system", content: SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: ctx.photoBase64
+              ? [
+                  { type: "text", text: `Контекст: ${ctx.placeDesc} (${ctx.displayName}).` },
+                  { type: "image_url", image_url: { url: `data:image/jpeg;base64,${ctx.photoBase64}`, detail: "high" } },
+                ]
+              : `Контекст: ${ctx.placeDesc} (${ctx.displayName}).`,
+          },
+          { role: "assistant", content: existingNarration },
+          ...existingChat.map(m => ({ role: m.role, content: m.content })),
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Я сфотографировал объект здесь — расскажи подробнее именно об этом." },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${photoBase64}`, detail: "high" } },
+            ],
+          },
+        ];
+        const reply = await callOpenAI(messages, key, 500);
+        contextRef.current = { ...ctx, photoBase64 };
+        setChatMessages([
+          ...existingChat,
+          { role: "user", content: "📷 фото", photoBase64 },
+          { role: "assistant", content: reply },
+        ]);
+        setStatus("ready");
+        speakText(reply);
+      } else {
+        const userContent = photoBase64
+          ? [
+              {
+                type: "text",
+                text: `Я нахожусь здесь: ${placeDesc}. Полное название: ${displayName}. Вот фотография объекта передо мной — используй её вместе с координатами, чтобы точно определить что изображено, и расскажи об этом.`,
+              },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${photoBase64}`, detail: "high" } },
+            ]
+          : `Я нахожусь здесь: ${placeDesc}. Полное название: ${displayName}. Расскажи мне об этом месте.`;
 
-      contextRef.current = { placeDesc, displayName, photoBase64 };
-      setChatMessages([]);
-      setNarration(text);
-      setStatus("ready");
-      speakText(text);
+        const text = await callOpenAI(
+          [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: userContent }],
+          key,
+          photoBase64 ? 500 : 400
+        );
+        contextRef.current = { placeDesc, displayName, photoBase64 };
+        setChatMessages([]);
+        setNarration(text);
+        setStatus("ready");
+        speakText(text);
+      }
     } catch (e) {
       setError(e.message);
       setStatus("error");
@@ -350,7 +389,10 @@ export default function AudioGuide() {
           <div style={s.chatArea}>
             {chatMessages.map((msg, i) => (
               <div key={i} style={{ ...s.chatBubble, ...(msg.role === "user" ? s.chatBubbleUser : s.chatBubbleAssistant) }}>
-                {msg.content}
+                {msg.photoBase64 && (
+                  <img src={`data:image/jpeg;base64,${msg.photoBase64}`} alt="" style={s.chatBubblePhoto} />
+                )}
+                {msg.content !== "📷 фото" && <span>{msg.content}</span>}
               </div>
             ))}
             {isChatLoading && (
@@ -506,6 +548,7 @@ const s = {
   chatBubble: { maxWidth: "85%", padding: "10px 14px", borderRadius: 16, fontSize: 15, lineHeight: 1.6, animation: "fadeIn 0.25s ease both" },
   chatBubbleUser: { alignSelf: "flex-end", background: "rgba(255,160,60,0.15)", border: "1px solid rgba(255,160,60,0.25)", color: "rgba(255,255,255,0.9)", borderBottomRightRadius: 4 },
   chatBubbleAssistant: { alignSelf: "flex-start", background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.85)", borderBottomLeftRadius: 4 },
+  chatBubblePhoto: { width: "100%", maxWidth: 200, borderRadius: 10, display: "block", marginBottom: 4 },
   typingDots: { display: "flex", gap: 5, padding: "4px 2px", alignItems: "center" },
   chatInputRow: { display: "flex", gap: 8, animation: "fadeIn 0.3s ease both" },
   chatInput: { flex: 1, background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 14, padding: "13px 16px", color: "#fff", fontSize: 15, outline: "none", fontFamily: "'Nunito',sans-serif" },
